@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -33,7 +33,7 @@ namespace AuthManagerApp
         public string Password { get; set; }
         public string Notes { get; set; }
     }
-
+    
     public class AppSettings
     {
         public string Language { get; set; } = "uk-UA";
@@ -120,7 +120,7 @@ namespace AuthManagerApp
             }
         }
     }
-
+    
     public static class LocalizationService
     {
         private static Dictionary<string, string> _currentDict;
@@ -187,7 +187,7 @@ namespace AuthManagerApp
             {
                 Apply(c, settings); // Recursive call
                 if (c is Button btn) { btn.BackColor = accent; btn.ForeColor = Color.White; btn.FlatStyle = FlatStyle.Flat; btn.FlatAppearance.BorderSize = 0; }
-                if (c is TextBox || c is ListBox || c is ComboBox) { c.BackColor = controlBack; c.ForeColor = foreColor; if (c is ListBox lb) lb.BorderStyle = BorderStyle.None; }
+                if (c is TextBox || c is ListBox || c is ComboBox) { c.BackColor = controlBack; c.ForeColor = foreColor; if(c is ListBox lb) lb.BorderStyle = BorderStyle.None; }
                 if (c is GroupBox gb) { gb.ForeColor = foreColor; }
             }
         }
@@ -201,24 +201,11 @@ namespace AuthManagerApp
     //================================================================================
     public class VaultManager
     {
-        private readonly string _vaultFile; private List<PasswordEntry> _entries; private byte[] _encryptionKey; public VaultManager(byte[] encryptionKey, string vaultPath) { _encryptionKey = encryptionKey; _vaultFile = vaultPath; _entries = new List<PasswordEntry>(); LoadVault(); }
-        private void LoadVault() { if (!File.Exists(_vaultFile)) { _entries = new List<PasswordEntry>(); return; } try { string encryptedJson = File.ReadAllText(_vaultFile); if (string.IsNullOrEmpty(encryptedJson)) { _entries = new List<PasswordEntry>(); return; } string json = CryptoService.Decrypt(encryptedJson, _encryptionKey); _entries = JsonSerializer.Deserialize<List<PasswordEntry>>(json) ?? new List<PasswordEntry>(); } catch (Exception) { throw new CryptographicException(LocalizationService.T("VaultDecryptionError")); } }
-        public void SaveVault() { var options = new JsonSerializerOptions { WriteIndented = true }; string json = JsonSerializer.Serialize(_entries, options); string encryptedJson = CryptoService.Encrypt(json, _encryptionKey); File.WriteAllText(_vaultFile, encryptedJson); }
-        public static void CreateNewVault(string password, byte[] salt, string vaultPath) { if (File.Exists(vaultPath)) return; var key = CryptoService.DeriveKey(password, salt); string encryptedJson = CryptoService.Encrypt(JsonSerializer.Serialize(new List<PasswordEntry>()), key); File.WriteAllText(vaultPath, encryptedJson); }
-        public List<PasswordEntry> GetEntries() => _entries.OrderBy(e => e.AccountName).ToList(); public PasswordEntry GetEntry(Guid id) => _entries.FirstOrDefault(e => e.Id == id); public void AddEntry(PasswordEntry entry) { _entries.Add(entry); }
-        public void UpdateEntry(PasswordEntry entry) { var existing = GetEntry(entry.Id); if (existing != null) { existing.AccountName = entry.AccountName; existing.Username = entry.Username; existing.Password = entry.Password; existing.Notes = entry.Notes; } }
-        public void DeleteEntry(Guid id) { _entries.RemoveAll(e => e.Id == id); }
+        private readonly string _vaultFile; private List<PasswordEntry> _entries; private byte[] _encryptionKey; public VaultManager(byte[] encryptionKey, string vaultPath) { _encryptionKey = encryptionKey; _vaultFile = vaultPath; _entries = new List<PasswordEntry>(); LoadVault(); } private void LoadVault() { if (!File.Exists(_vaultFile)) { _entries = new List<PasswordEntry>(); return; } try { string encryptedJson = File.ReadAllText(_vaultFile); if (string.IsNullOrEmpty(encryptedJson)) { _entries = new List<PasswordEntry>(); return; } string json = CryptoService.Decrypt(encryptedJson, _encryptionKey); _entries = JsonSerializer.Deserialize<List<PasswordEntry>>(json) ?? new List<PasswordEntry>(); } catch (Exception) { throw new CryptographicException(LocalizationService.T("VaultDecryptionError")); } } public void SaveVault() { var options = new JsonSerializerOptions { WriteIndented = true }; string json = JsonSerializer.Serialize(_entries, options); string encryptedJson = CryptoService.Encrypt(json, _encryptionKey); File.WriteAllText(_vaultFile, encryptedJson); } public static void CreateNewVault(string password, byte[] salt, string vaultPath) { if (File.Exists(vaultPath)) return; var key = CryptoService.DeriveKey(password, salt); string encryptedJson = CryptoService.Encrypt(JsonSerializer.Serialize(new List<PasswordEntry>()), key); File.WriteAllText(vaultPath, encryptedJson); } public List<PasswordEntry> GetEntries() => _entries.OrderBy(e => e.AccountName).ToList(); public PasswordEntry GetEntry(Guid id) => _entries.FirstOrDefault(e => e.Id == id); public void AddEntry(PasswordEntry entry) { _entries.Add(entry); } public void UpdateEntry(PasswordEntry entry) { var existing = GetEntry(entry.Id); if (existing != null) { existing.AccountName = entry.AccountName; existing.Username = entry.Username; existing.Password = entry.Password; existing.Notes = entry.Notes; } } public void DeleteEntry(Guid id) { _entries.RemoveAll(e => e.Id == id); }
     }
     public class AuthManager
     {
-        private const string ConfigFile = "config.json"; private const int SaltSize = 16, KeyFileSize = 1024, Iterations = 480000; private AuthConfig _configData; public AuthManager() { _configData = LoadConfig(); }
-        private AuthConfig LoadConfig() { if (!File.Exists(ConfigFile)) return new AuthConfig(); try { string json = File.ReadAllText(ConfigFile); return JsonSerializer.Deserialize<AuthConfig>(json) ?? new AuthConfig(); } catch { return new AuthConfig(); } }
-        private bool SaveConfig() { try { var options = new JsonSerializerOptions { WriteIndented = true }; string json = JsonSerializer.Serialize(_configData, options); File.WriteAllText(ConfigFile, json); return true; } catch { return false; } }
-        private byte[] HashData(byte[] data, byte[] salt) { using (var kdf = new Rfc2898DeriveBytes(data, salt, Iterations, HashAlgorithmName.SHA256)) { return kdf.GetBytes(32); } }
-        public bool DoesConfigExist() => !string.IsNullOrEmpty(_configData.PasswordHash); public (bool Success, string Message) Setup(string password, string vaultPath, string keyFilepath = null) { byte[] passwordSalt = RandomNumberGenerator.GetBytes(SaltSize); byte[] passwordHash = HashData(Encoding.UTF8.GetBytes(password), passwordSalt); _configData = new AuthConfig { PasswordSalt = Convert.ToBase64String(passwordSalt), PasswordHash = Convert.ToBase64String(passwordHash) }; if (!string.IsNullOrEmpty(keyFilepath)) { try { byte[] keyData = RandomNumberGenerator.GetBytes(KeyFileSize); File.WriteAllBytes(keyFilepath, keyData); byte[] recoverySalt = RandomNumberGenerator.GetBytes(SaltSize); byte[] recoveryHash = HashData(keyData, recoverySalt); _configData.RecoverySalt = Convert.ToBase64String(recoverySalt); _configData.RecoveryHash = Convert.ToBase64String(recoveryHash); } catch (Exception ex) { return (false, $"{LocalizationService.T("SetupError")}: {ex.Message}"); } } if (SaveConfig()) { VaultManager.CreateNewVault(password, passwordSalt, vaultPath); return (true, LocalizationService.T("Success")); } return (false, LocalizationService.T("SetupError")); }
-        public (bool Success, string Message, byte[] Key) Login(string password) { try { byte[] passwordSalt = Convert.FromBase64String(_configData.PasswordSalt); byte[] storedHash = Convert.FromBase64String(_configData.PasswordHash); byte[] enteredPasswordHash = HashData(Encoding.UTF8.GetBytes(password), passwordSalt); if (CryptographicOperations.FixedTimeEquals(storedHash, enteredPasswordHash)) { byte[] encryptionKey = CryptoService.DeriveKey(password, passwordSalt); return (true, LocalizationService.T("Success"), encryptionKey); } return (false, LocalizationService.T("LoginError"), null); } catch { return (false, LocalizationService.T("SetupError"), null); } }
-        public (bool Success, string Message) RecoverAccess(string keyFilepath, string newPassword, string vaultPath) { if (string.IsNullOrEmpty(_configData.RecoveryHash)) return (false, LocalizationService.T("SetupError")); try { byte[] keyData = File.ReadAllBytes(keyFilepath); byte[] recoverySalt = Convert.FromBase64String(_configData.RecoverySalt); byte[] storedRecoveryHash = Convert.FromBase64String(_configData.RecoveryHash); byte[] enteredKeyHash = HashData(keyData, recoverySalt); if (CryptographicOperations.FixedTimeEquals(storedRecoveryHash, enteredKeyHash)) { byte[] passwordSalt = Convert.FromBase64String(_configData.PasswordSalt); byte[] newPasswordHash = HashData(Encoding.UTF8.GetBytes(newPassword), passwordSalt); _configData.PasswordHash = Convert.ToBase64String(newPasswordHash); if (SaveConfig()) { if (File.Exists(vaultPath)) File.Delete(vaultPath); VaultManager.CreateNewVault(newPassword, passwordSalt, vaultPath); return (true, LocalizationService.T("RecoveryPasswordResetWarning")); } return (false, LocalizationService.T("Error")); } return (false, LocalizationService.T("LoginError")); } catch (Exception ex) { return (false, $"{LocalizationService.T("Recovery")}: {ex.Message}"); } }
-        public void ReloadConfig() => _configData = LoadConfig();
+        private const string ConfigFile = "config.json"; private const int SaltSize = 16, KeyFileSize = 1024, Iterations = 480000; private AuthConfig _configData; public AuthManager() { _configData = LoadConfig(); } private AuthConfig LoadConfig() { if (!File.Exists(ConfigFile)) return new AuthConfig(); try { string json = File.ReadAllText(ConfigFile); return JsonSerializer.Deserialize<AuthConfig>(json) ?? new AuthConfig(); } catch { return new AuthConfig(); } } private bool SaveConfig() { try { var options = new JsonSerializerOptions { WriteIndented = true }; string json = JsonSerializer.Serialize(_configData, options); File.WriteAllText(ConfigFile, json); return true; } catch { return false; } } private byte[] HashData(byte[] data, byte[] salt) { using (var kdf = new Rfc2898DeriveBytes(data, salt, Iterations, HashAlgorithmName.SHA256)) { return kdf.GetBytes(32); } } public bool DoesConfigExist() => !string.IsNullOrEmpty(_configData.PasswordHash); public (bool Success, string Message) Setup(string password, string vaultPath, string keyFilepath = null) { byte[] passwordSalt = RandomNumberGenerator.GetBytes(SaltSize); byte[] passwordHash = HashData(Encoding.UTF8.GetBytes(password), passwordSalt); _configData = new AuthConfig { PasswordSalt = Convert.ToBase64String(passwordSalt), PasswordHash = Convert.ToBase64String(passwordHash) }; if (!string.IsNullOrEmpty(keyFilepath)) { try { byte[] keyData = RandomNumberGenerator.GetBytes(KeyFileSize); File.WriteAllBytes(keyFilepath, keyData); byte[] recoverySalt = RandomNumberGenerator.GetBytes(SaltSize); byte[] recoveryHash = HashData(keyData, recoverySalt); _configData.RecoverySalt = Convert.ToBase64String(recoverySalt); _configData.RecoveryHash = Convert.ToBase64String(recoveryHash); } catch (Exception ex) { return (false, $"{LocalizationService.T("SetupError")}: {ex.Message}"); } } if (SaveConfig()) { VaultManager.CreateNewVault(password, passwordSalt, vaultPath); return (true, LocalizationService.T("Success")); } return (false, LocalizationService.T("SetupError")); } public (bool Success, string Message, byte[] Key) Login(string password) { try { byte[] passwordSalt = Convert.FromBase64String(_configData.PasswordSalt); byte[] storedHash = Convert.FromBase64String(_configData.PasswordHash); byte[] enteredPasswordHash = HashData(Encoding.UTF8.GetBytes(password), passwordSalt); if (CryptographicOperations.FixedTimeEquals(storedHash, enteredPasswordHash)) { byte[] encryptionKey = CryptoService.DeriveKey(password, passwordSalt); return (true, LocalizationService.T("Success"), encryptionKey); } return (false, LocalizationService.T("LoginError"), null); } catch { return (false, LocalizationService.T("SetupError"), null); } } public (bool Success, string Message) RecoverAccess(string keyFilepath, string newPassword, string vaultPath) { if (string.IsNullOrEmpty(_configData.RecoveryHash)) return (false, LocalizationService.T("SetupError")); try { byte[] keyData = File.ReadAllBytes(keyFilepath); byte[] recoverySalt = Convert.FromBase64String(_configData.RecoverySalt); byte[] storedRecoveryHash = Convert.FromBase64String(_configData.RecoveryHash); byte[] enteredKeyHash = HashData(keyData, recoverySalt); if (CryptographicOperations.FixedTimeEquals(storedRecoveryHash, enteredKeyHash)) { byte[] passwordSalt = Convert.FromBase64String(_configData.PasswordSalt); byte[] newPasswordHash = HashData(Encoding.UTF8.GetBytes(newPassword), passwordSalt); _configData.PasswordHash = Convert.ToBase64String(newPasswordHash); if (SaveConfig()) { if (File.Exists(vaultPath)) File.Delete(vaultPath); VaultManager.CreateNewVault(newPassword, passwordSalt, vaultPath); return (true, LocalizationService.T("RecoveryPasswordResetWarning")); } return (false, LocalizationService.T("Error")); } return (false, LocalizationService.T("LoginError")); } catch (Exception ex) { return (false, $"{LocalizationService.T("Recovery")}: {ex.Message}"); } } public void ReloadConfig() => _configData = LoadConfig();
     }
     #endregion
 
@@ -250,7 +237,7 @@ namespace AuthManagerApp
             this.Size = new Size(450, 350);
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.StartPosition = FormStartPosition.CenterParent;
-
+            
             _langLabel = new Label { Location = new Point(20, 20), AutoSize = true };
             _languageBox = new ComboBox { Location = new Point(20, 45), Width = 390, DropDownStyle = ComboBoxStyle.DropDownList };
             _languageBox.Items.AddRange(new[] { "українська (uk-UA)", "English (en-US)" });
@@ -258,14 +245,14 @@ namespace AuthManagerApp
             _vaultLabel = new Label { Location = new Point(20, 80), AutoSize = true };
             _vaultPathBox = new TextBox { Location = new Point(20, 105), Width = 300 };
             _browseButton = new Button { Location = new Point(330, 104), Width = 80 };
-            _browseButton.Click += (s, e) => { using (var sfd = new SaveFileDialog { Filter = "Vault File|*.dat", FileName = "vault.dat" }) { if (sfd.ShowDialog() == DialogResult.OK) _vaultPathBox.Text = sfd.FileName; } };
+            _browseButton.Click += (s, e) => { using(var sfd = new SaveFileDialog { Filter = "Vault File|*.dat", FileName = "vault.dat" }) { if(sfd.ShowDialog() == DialogResult.OK) _vaultPathBox.Text = sfd.FileName; } };
 
             _themeLabel = new Label { Location = new Point(20, 140), AutoSize = true };
             _themeBox = new ComboBox { Location = new Point(20, 165), Width = 180, DropDownStyle = ComboBoxStyle.DropDownList };
 
             _accentLabel = new Label { Location = new Point(230, 140), AutoSize = true };
             _accentColorButton = new Button { Location = new Point(230, 165), Width = 180 };
-            _accentColorButton.Click += (s, e) => { using (var cd = new ColorDialog()) { if (cd.ShowDialog() == DialogResult.OK) _accentColorButton.BackColor = cd.Color; } };
+            _accentColorButton.Click += (s, e) => { using(var cd = new ColorDialog()) { if(cd.ShowDialog() == DialogResult.OK) _accentColorButton.BackColor = cd.Color; } };
 
             _saveButton = new Button { Location = new Point(220, 250), Width = 90 };
             _cancelButton = new Button { Location = new Point(320, 250), Width = 90 };
@@ -275,7 +262,7 @@ namespace AuthManagerApp
 
             this.Controls.AddRange(new Control[] { _langLabel, _languageBox, _vaultLabel, _vaultPathBox, _browseButton, _themeLabel, _themeBox, _accentLabel, _accentColorButton, _saveButton, _cancelButton });
         }
-
+        
         private void LoadSettingsToUI()
         {
             _languageBox.SelectedIndex = _settings.Language == "uk-UA" ? 0 : 1;
@@ -285,7 +272,7 @@ namespace AuthManagerApp
             _themeBox.SelectedItem = _settings.Theme == "Dark" ? LocalizationService.T("Dark") : LocalizationService.T("Light");
             _accentColorButton.BackColor = ColorTranslator.FromHtml(_settings.AccentColor);
         }
-
+        
         private void UpdateUIStrings()
         {
             this.Text = LocalizationService.T("Settings");
@@ -304,13 +291,13 @@ namespace AuthManagerApp
             _settings.VaultPath = _vaultPathBox.Text;
             _settings.Theme = _themeBox.SelectedItem.ToString() == LocalizationService.T("Dark") ? "Dark" : "Light";
             _settings.AccentColor = ColorTranslator.ToHtml(_accentColorButton.BackColor);
-
+            
             SettingsManager.Save(_settings);
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
     }
-
+    
     public class MainForm : Form
     {
         // Core services
@@ -323,7 +310,7 @@ namespace AuthManagerApp
 
         // Panels
         private Panel _setupPanel, _loginPanel, _recoveryPanel, _managerPanel;
-
+        
         // Shared Controls
         private TextBox _setupPassEntry, _setupPassConfirmEntry, _loginPasswordEntry, _recoveryNewPass, _recoveryNewPassConfirm;
         private ListBox _accountsListBox;
@@ -345,12 +332,12 @@ namespace AuthManagerApp
             _authManager = new AuthManager();
             InitializeComponent();
             ApplyAllSettings();
-
+            
             this.Resize += MainForm_Resize;
-
+            
             if (_authManager.DoesConfigExist()) ShowPanel(_loginPanel); else ShowPanel(_setupPanel);
         }
-
+        
         private void CenterAuthPanel(Panel panel)
         {
             if (panel == null || panel.Controls.Count == 0) return;
@@ -417,7 +404,7 @@ namespace AuthManagerApp
             _saveButton.Text = LocalizationService.T("Save");
             _deleteButton.Text = LocalizationService.T("Delete");
             _logoutButton.Text = LocalizationService.T("Logout");
-
+            
             // Recenter titles inside their containers
             if (_setupTitle.Parent != null) _setupTitle.Left = (_setupTitle.Parent.Width - _setupTitle.Width) / 2;
             if (_loginTitle.Parent != null) _loginTitle.Left = (_loginTitle.Parent.Width - _loginTitle.Width) / 2;
@@ -456,15 +443,15 @@ namespace AuthManagerApp
         private void CreateSetupPanel()
         {
             _setupPanel = new Panel { Dock = DockStyle.Fill };
-            var container = new Panel { Size = new Size(300, 330), Anchor = AnchorStyles.None };
-
+            var container = new Panel { Size = new Size(300, 300) };
+            
             _setupTitle = new Label { Font = new Font("Segoe UI", 16F, FontStyle.Bold), AutoSize = true, Location = new Point(0, 0) };
             _setupPassEntry = new TextBox { Size = new Size(250, 30), Location = new Point(25, 70) };
             _setupPassConfirmEntry = new TextBox { Size = new Size(250, 30), Location = new Point(25, 120), UseSystemPasswordChar = true };
             _createKeyCheckbox = new CheckBox { Size = new Size(250, 30), Location = new Point(25, 170) };
             _setupButton = new Button { Size = new Size(250, 40), Location = new Point(25, 220) };
             _setupButton.Click += HandleSetup;
-
+            
             container.Controls.AddRange(new Control[] { _setupTitle, _setupPassEntry, _setupPassConfirmEntry, _createKeyCheckbox, _setupButton });
             _setupPanel.Controls.Add(container);
             this.Controls.Add(_setupPanel);
@@ -473,7 +460,7 @@ namespace AuthManagerApp
         private void CreateLoginPanel()
         {
             _loginPanel = new Panel { Dock = DockStyle.Fill };
-            var container = new Panel { Size = new Size(300, 320), Anchor = AnchorStyles.None };
+            var container = new Panel { Size = new Size(300, 240) };
 
             _loginTitle = new Label { Font = new Font("Segoe UI", 16F, FontStyle.Bold), AutoSize = true, Location = new Point(0, 0) };
             _loginPasswordEntry = new TextBox { Size = new Size(250, 30), Location = new Point(25, 70), UseSystemPasswordChar = true };
@@ -481,17 +468,17 @@ namespace AuthManagerApp
             _recoveryFromLoginButton = new Button { Size = new Size(250, 40), Location = new Point(25, 170) };
             _loginButton.Click += HandleLogin;
             _recoveryFromLoginButton.Click += (s, e) => ShowPanel(_recoveryPanel);
-
+            
             container.Controls.AddRange(new Control[] { _loginTitle, _loginPasswordEntry, _loginButton, _recoveryFromLoginButton });
             _loginPanel.Controls.Add(container);
             this.Controls.Add(_loginPanel);
         }
-
+        
         private void CreateRecoveryPanel()
         {
             _recoveryPanel = new Panel { Dock = DockStyle.Fill };
-            var container = new Panel { Size = new Size(300, 380), Anchor = AnchorStyles.None };
-
+            var container = new Panel { Size = new Size(300, 360) };
+            
             _recoveryTitle = new Label { Font = new Font("Segoe UI", 16F, FontStyle.Bold), AutoSize = true, Location = new Point(0, 0) };
             _selectKeyButton = new Button { Size = new Size(250, 40), Location = new Point(25, 50) };
             _keyPathLabel = new Label { Size = new Size(250, 20), Location = new Point(25, 100), TextAlign = ContentAlignment.MiddleCenter };
@@ -502,12 +489,12 @@ namespace AuthManagerApp
             _selectKeyButton.Click += SelectRecoveryKeyFile;
             _recoverButton.Click += HandleRecovery;
             _backToLoginButton.Click += (s, e) => ShowPanel(_loginPanel);
-
+            
             container.Controls.AddRange(new Control[] { _recoveryTitle, _selectKeyButton, _keyPathLabel, _recoveryNewPass, _recoveryNewPassConfirm, _recoverButton, _backToLoginButton });
             _recoveryPanel.Controls.Add(container);
             this.Controls.Add(_recoveryPanel);
         }
-
+        
         private void HandleLogin(object sender, EventArgs e) { var (success, message, key) = _authManager.Login(_loginPasswordEntry.Text); if (success) { _currentKey = key; try { _vaultManager = new VaultManager(_currentKey, _settings.VaultPath); PopulateAccountsList(); SetDetailsPanelEnabled(false); ClearDetailsPanel(); ShowPanel(_managerPanel); } catch (Exception ex) { MessageBox.Show(ex.Message, LocalizationService.T("VaultLoadError"), MessageBoxButtons.OK, MessageBoxIcon.Error); } } else { MessageBox.Show(message, LocalizationService.T("LoginError"), MessageBoxButtons.OK, MessageBoxIcon.Error); } _loginPasswordEntry.Clear(); }
         private void PopulateAccountsList() { _accountsListBox.Items.Clear(); var entries = _vaultManager.GetEntries(); foreach (var entry in entries) { _accountsListBox.Items.Add(entry); } _accountsListBox.DisplayMember = "AccountName"; }
         private void AccountsListBox_SelectedIndexChanged(object sender, EventArgs e) { if (_accountsListBox.SelectedItem is PasswordEntry entry) { _selectedEntry = entry; _accountNameBox.Text = entry.AccountName; _usernameBox.Text = entry.Username; _passwordBox.Text = entry.Password; _notesBox.Text = entry.Notes; SetDetailsPanelEnabled(true); _deleteButton.Enabled = true; } }
@@ -522,7 +509,7 @@ namespace AuthManagerApp
         private void HandleRecovery(object sender, EventArgs e) { if (string.IsNullOrEmpty(_recoveryKeyPath)) { MessageBox.Show(LocalizationService.T("ChooseKeyFileError"), LocalizationService.T("Error"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; } var p1 = _recoveryNewPass.Text; var p2 = _recoveryNewPassConfirm.Text; if (string.IsNullOrWhiteSpace(p1) || p1 != p2) { MessageBox.Show(LocalizationService.T("PasswordsEmptyOrMismatch"), LocalizationService.T("Error"), MessageBoxButtons.OK, MessageBoxIcon.Warning); return; } var (success, message) = _authManager.RecoverAccess(_recoveryKeyPath, p1, _settings.VaultPath); MessageBox.Show(message, success ? LocalizationService.T("Success") : LocalizationService.T("Error"), MessageBoxButtons.OK, success ? MessageBoxIcon.Information : MessageBoxIcon.Error); if (success) { _authManager.ReloadConfig(); ShowPanel(_loginPanel); } }
     }
     #endregion
-
+    
     #region PART 4: APPLICATION LAUNCH
     //================================================================================
     // PART 4: APPLICATION LAUNCH
